@@ -1,0 +1,39 @@
+name: Momentum Screener - Multi-Agent Run
+
+on:
+  schedule:
+    # רץ כל יום מסחר ב-20:00 UTC (אחרי סגירת השוק האמריקאי, 23:00 שעון ישראל)
+    - cron: "0 20 * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  run-multi-agent-screener:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run multi-agent screener
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python orchestrator.py
+
+      - name: Commit updated log
+        run: |
+          git config --global user.name "momentum-bot"
+          git config --global user.email "bot@users.noreply.github.com"
+          git add logs/decisions.csv
+          git diff --staged --quiet || git commit -m "Auto: screener run $(date -u +'%Y-%m-%d %H:%M')"
+          git push
