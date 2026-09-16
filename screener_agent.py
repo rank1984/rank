@@ -11,11 +11,16 @@ import config
 
 
 def compute_rsi(series, period=14):
+    """RSI לפי Wilder's smoothing (EMA) – השיטה המקורית והמדויקת יותר"""
     delta = series.diff()
-    gain = delta.where(delta > 0, 0).rolling(period).mean()
-    loss = -delta.where(delta < 0, 0).rolling(period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    # Wilder's smoothing = Exponential Moving Average עם alpha = 1/period
+    avg_gain = gain.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
 
 def compute_atr(df, period=14):
@@ -90,6 +95,9 @@ def screen_ticker(ticker: str, benchmark_change: float) -> dict | None:
         reject_reason = "market_cap_out_of_range"
     elif float_shares and not (config.FLOAT_MIN <= float_shares <= config.FLOAT_MAX):
         reject_reason = "float_out_of_range"
+    elif config.GAP_REQUIRE_POSITIVE:
+        if not (config.GAP_MIN_PCT <= gap_pct <= config.GAP_MAX_PCT):
+            reject_reason = "gap_out_of_range"
     elif not (config.GAP_MIN_PCT <= abs(gap_pct) <= config.GAP_MAX_PCT):
         reject_reason = "gap_out_of_range"
     elif not ema_breakout:
