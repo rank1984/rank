@@ -1,75 +1,102 @@
 """
-חישוב מדדי ביצועים ל-Backtest
+כל המדדים לדוח. כולל הגנת 0 עסקאות.
 """
-
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 
-def calculate_metrics(trades: list, initial_capital: float = 1000.0) -> dict:
-    if not trades:
-        return {
-            "total_trades": 0,
-            "win_rate": 0.0,
-            "profit_factor": 0.0,
-            "avg_rr": 0.0,
-            "total_net_pnl": 0.0,
-            "max_drawdown_pct": 0.0,
-            "final_capital": initial_capital,
-            "return_pct": 0.0,
-        }
+def _longest_losing_streak(r_series: pd.Series) -> int:
+    longest = cur = 0
+    for r in r_series.tolist():
+        if r < 0:
+            cur += 1
+            longest = max(longest, cur)
+        else:
+            cur = 0
+    return longest
 
-    df = pd.DataFrame(trades)
 
-    wins = df[df["net_pnl"] > 0]
-    losses = df[df["net_pnl"] <= 0]
+def _max_drawdown_r(r_series: pd.Series) -> float:
+    if r_series.empty:
+        return 0.0
+    equity = np.cumsum(r_series.values)
+    peak = np.maximum.accumulate(equity)
+    dd = equity - peak
+    return float(dd.min())
 
-    total_trades = len(df)
-    win_rate = len(wins) / total_trades * 100 if total_trades > 0 else 0
 
-    gross_profit = wins["net_pnl"].sum() if len(wins) > 0 else 0
-    gross_loss = abs(losses["net_pnl"].sum()) if len(losses) > 0 else 0
-    profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
-
-    avg_rr = df["realized_rr"].mean() if "realized_rr" in df.columns else 0
-
-    # Equity curve + Max Drawdown
-    df = df.sort_values("entry_date")
-    df["cumulative_pnl"] = df["net_pnl"].cumsum()
-    df["equity"] = initial_capital + df["cumulative_pnl"]
-
-    peak = df["equity"].cummax()
-    drawdown = (df["equity"] - peak) / peak
-    max_drawdown_pct = abs(drawdown.min()) * 100 if len(drawdown) > 0 else 0
-
-    final_capital = df["equity"].iloc[-1]
-    return_pct = (final_capital - initial_capital) / initial_capital * 100
-
-    return {
-        "total_trades": total_trades,
-        "win_rate": round(win_rate, 1),
-        "profit_factor": round(profit_factor, 2),
-        "avg_rr": round(avg_rr, 2),
-        "total_net_pnl": round(df["net_pnl"].sum(), 2),
-        "max_drawdown_pct": round(max_drawdown_pct, 1),
-        "final_capital": round(final_capital, 2),
-        "return_pct": round(return_pct, 1),
-        "avg_days_held": round(df["days_held"].mean(), 1) if "days_held" in df.columns else 0,
+def calculate_metrics(trades_df: pd.DataFrame) -> dict:
+    base = {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "avg_win_r": 0.0,
+        "avg_loss_r": 0.0,
+        "expectancy_r": 0.0,
+        "profit_factor": 0.0,
+        "total_r": 0.0,
+        "max_drawdown_r": 0.0,
+        "longest_losing_streak": 0,
+        "avg_bars_held": 0.0,
+        "avg_slippage_bps": 0.0,
     }
+    if trades_df is None or trades_df.empty:
+        return base
+
+    df = trades_df
+    wins = df[df["r_multiple"] > 0]
+    losses = df[df["r_multiple"] <= 0]
+
+    gross_win = float(wins["r_multiple"].sum())
+    gross_loss = float(-losses["r_multiple"].sum())
+
+    if gross_loss > 0:
+        pf = gross_win / gross_loss
+    elif gross_win > 0:
+        pf = float("inf")
+    else:
+        pf = 0.0
+
+    base.update({
+        "total_trades": int(len(df)),
+        "wins": int(len(wins)),
+        "losses": int(len(losses)),
+        "win_rate": float(len(wins) / len(df)),
+        "avg_win_r": float(wins["r_multiple"].mean()) if len(wins) else 0.0,
+        "avg_loss_r": float(losses["r_multiple"].mean()) if len(losses) else 0.0,
+        "expectancy_r": float(df["r_multiple"].mean()),
+        "profit_factor": pf,
+        "total_r": float(df["r_multiple"].sum()),
+        "max_drawdown_r": _max_drawdown_r(df["r_multiple"]),
+        "longest_losing_streak": _longest_losing_streak(df["r_multiple"]),
+        "avg_bars_held": float(df["bars_held"].mean()),
+        "avg_slippage_bps": float(df["slippage_bps"].mean()) if "slippage_bps" in df else 0.0,
+    })
+    return base
 
 
-def print_report(metrics: dict, start_date: str, end_date: str):
-    print("\n" + "=" * 60)
-    print("BACKTEST REPORT")
-    print("=" * 60)
-    print(f"Period          : {start_date} → {end_date}")
-    print(f"Total Trades    : {metrics['total_trades']}")
-    print(f"Win Rate        : {metrics['win_rate']}%")
-    print(f"Profit Factor   : {metrics['profit_factor']}")
-    print(f"Avg Realized R:R: {metrics['avg_rr']}")
-    print(f"Total Net P&L   : ${metrics['total_net_pnl']}")
-    print(f"Max Drawdown    : {metrics['max_drawdown_pct']}%")
-    print(f"Final Capital   : ${metrics['final_capital']}")
-    print(f"Return          : {metrics['return_pct']}%")
-    print(f"Avg Days Held   : {metrics['avg_days_held']}")
-    print("=" * 60)
+def breakdown(trades_df: pd.DataFrame, by: str) -> pd.DataFrame:
+    if trades_df is None or trades_df.empty or by not in trades_df.columns:
+        return pd.DataFrame()
+    g = trades_df.groupby(by)
+    out = pd.DataFrame({
+        "trades": g.size(),
+        "win_rate": g["r_multiple"].apply(lambda s: float((s > 0).mean())),
+        "expectancy_r": g["r_multiple"].mean(),
+        "total_r": g["r_multiple"].sum(),
+        "avg_bars_held": g["bars_held"].mean(),
+    })
+    return out.sort_values("total_r", ascending=False)
+
+
+def spread_buckets(trades_df: pd.DataFrame) -> pd.DataFrame:
+    if trades_df is None or trades_df.empty:
+        return pd.DataFrame()
+    df = trades_df.copy()
+    df["spread_bucket"] = pd.cut(
+        df["spread_at_entry"],
+        bins=[-0.0001, 0.001, 0.003, 0.005, 1.0],
+        labels=["<0.1%", "0.1-0.3%", "0.3-0.5%", ">0.5%"],
+    )
+    return breakdown(df, "spread_bucket")
