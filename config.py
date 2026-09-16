@@ -3,11 +3,12 @@
 """
 
 # --- יקום מניות לסריקה ---
-# רשימת התחלה - הרחב לפי הצורך (אפשר לטעון מ-CSV של S&P/Russell בעתיד)
+# רשימת התחלה - הרחב לפי הצורך (אם הקובץ universe.csv קיים – נטען ממנו, אחרת משתמשים ברשימה זו)
 UNIVERSE = [
     "SIRI", "SOFI", "PLUG", "F", "NOK", "RIOT", "MARA", "CHPT",
     "LCID", "NIO", "PLTR", "AAL", "CCL", "WBD", "PARA", "VALE",
 ]
+UNIVERSE_FILE = "universe.csv"   # קובץ ה-CSV המורחב
 
 PRICE_MIN = 5.0
 PRICE_MAX = 30.0
@@ -23,6 +24,7 @@ FLOAT_MAX = 150_000_000
 # --- Gap Filter (פער בין פתיחה לסגירה קודמת) ---
 GAP_MIN_PCT = 0.05
 GAP_MAX_PCT = 0.25
+GAP_REQUIRE_POSITIVE = True   # True = רק gap חיובי (מומלץ למומנטום לונג)
 
 # --- סוכן טכני (Screener Agent) ---
 EMA_FAST = 9
