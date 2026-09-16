@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import config
+from utils import load_universe
 from agents.screener_agent import run_screener
 from agents.catalyst_agent import run_catalyst_agent
 from agents.risk_manager import run_risk_manager
@@ -44,13 +45,15 @@ def main():
     print(f"מערכת מולטי-סוכנים - סריקת מומנטום | {datetime.now().isoformat()}")
     print("=" * 70)
 
-    print(f"\n[סוכן 1/3] Screener Agent - סורק {len(config.UNIVERSE)} מניות...")
-    candidates = run_screener(config.UNIVERSE)
+    universe = load_universe()
+
+    print(f"\n[סוכן 1/3] Screener Agent - סורק {len(universe)} מניות...")
+    candidates = run_screener(universe)
     print(f"  --> {len(candidates)} מניות עברו סינון טכני\n")
 
     if not candidates:
         print("אין מועמדות היום. מסיים.")
-        send_summary([], len(config.UNIVERSE), 0)
+        send_summary([], len(universe), 0)
         return
 
     print(f"[סוכן 2/3] Catalyst Agent - מדרג קטליזטורים חדשותיים (A/B/C/D)...")
@@ -68,10 +71,10 @@ def main():
     log_results(final_results)
 
     print("שולח התראות טלגרם...")
-    send_summary(approved, len(config.UNIVERSE), len(candidates))
+    send_summary(approved, len(universe), len(candidates))
 
     print("\n" + "=" * 70)
-    print(f"סיכום: {len(config.UNIVERSE)} נסרקו -> {len(candidates)} טכני "
+    print(f"סיכום: {len(universe)} נסרקו -> {len(candidates)} טכני "
           f"-> {len(strong_catalyst)} קטליזטור A/B -> {len(approved)} אושרו")
     print(f"נרשם ל-{config.LOG_FILE}")
     print("=" * 70)
