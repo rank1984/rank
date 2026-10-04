@@ -1,0 +1,51 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+ENV/
+
+# --- Env / secrets ---
+.env
+.env.local
+.env.*.local
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Testing / coverage ---
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# --- Logs ---
+# קבצי המערכת (decisions/screener_all/runs/mcap_snapshot/fills/llm_raw)
+# נשמרים ב-repo *בכוונה* - ה-workflow דוחף אותם אחרי כל ריצה.
+# כאן רק זמניים / מחוץ למערכת:
+logs/*.log
+logs/*.tmp
+logs/*.bak
+logs/universe_check.csv
+logs/signal_count/
+logs/backtest_trades_sens*.csv
+logs/fills_local.csv
+
+# --- Backtest / data cache ---
+*.parquet
+*.feather
+data/cache/
