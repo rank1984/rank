@@ -1,33 +1,43 @@
-import pandas as pd
-import os
-import config
-from datetime import datetime, timedelta
+"""
+utils.py - General utility functions for logging, date handling, and calculations.
+"""
 
-def expected_session_date(dt: datetime = None) -> datetime.date:
+import logging
+from datetime import datetime
+import pytz
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger("MomentumMAS")
+
+def get_ny_now() -> datetime:
+    """Returns the current datetime in New York (America/New_York) timezone."""
+    ny_tz = pytz.timezone("America/New_York")
+    return datetime.now(ny_tz)
+
+def expected_session_date(dt: datetime = None) -> str:
     """
-    מחזיר את תאריך יום המסחר הצפוי.
-    אם היום יום שבת או ראשון, מחזיר את יום שישי האחרון.
+    Returns the expected trading session date string (YYYY-MM-DD) in NY timezone.
+    If no datetime is supplied, uses current NY time.
     """
     if dt is None:
-        dt = datetime.now()
+        dt = get_ny_now()
+    elif dt.tzinfo is None:
+        ny_tz = pytz.timezone("America/New_York")
+        dt = ny_tz.localize(dt)
+    else:
+        dt = dt.astimezone(pytz.timezone("America/New_York"))
     
-    # 5 = שבת, 6 = ראשון (בספירה של Python שמתחילה מ-0 ביום שני)
-    if dt.weekday() == 5:
-        return (dt - timedelta(days=1)).date()
-    elif dt.weekday() == 6:
-        return (dt - timedelta(days=2)).date()
-    
-    return dt.date()
+    return dt.strftime("%Y-%m-%d")
 
-def load_universe() -> list:
-    """טוען יקום מניות מ-CSV אם קיים, אחרת משתמש ב-config.UNIVERSE"""
-    if os.path.exists(config.UNIVERSE_FILE):
-        try:
-            df = pd.read_csv(config.UNIVERSE_FILE)
-            tickers = df["ticker"].dropna().astype(str).str.upper().str.strip().unique().tolist()
-            print(f"נטענו {len(tickers)} טיקרים מ-{config.UNIVERSE_FILE}")
-            return tickers
-        except Exception as e:
-            print(f"שגיאה בטעינת {config.UNIVERSE_FILE}: {e}. משתמש ב-UNIVERSE ברירת מחדל.")
-            return config.UNIVERSE
-    return config.UNIVERSE
+def calculate_position_size(account_size: float, risk_pct: float, entry_price: float, stop_loss: float) -> int:
+    """Calculates position size in shares based on account risk."""
+    if entry_price <= stop_loss or entry_price <= 0:
+        return 0
+    risk_per_share = entry_price - stop_loss
+    max_risk_amount = account_size * (risk_pct / 100.0)
+    shares = int(max_risk_amount / risk_per_share)
+    return max(shares, 0)
