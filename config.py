@@ -1,94 +1,54 @@
 """
-כל הפרמטרים של המערכת - כאן מכוונים את ההתנהגות בלי לגעת בלוגיקה
+config.py - Configuration management for Momentum MAS workflow
+Reads settings from environment variables and defines system-wide constants.
 """
 
-# --- יקום מניות לסריקה ---
-# רשימת התחלה - הרחב לפי הצורך (אם הקובץ universe.csv קיים – נטען ממנו, אחרת משתמשים ברשימה זו)
-UNIVERSE = [
-    "SIRI", "SOFI", "PLUG", "F", "NOK", "RIOT", "MARA", "CHPT",
-    "LCID", "NIO", "PLTR", "AAL", "CCL", "WBD", "PARA", "VALE",
-]
-UNIVERSE_FILE = "universe.csv"   # קובץ ה-CSV המורחב
+import os
+from pathlib import Path
+from dotenv import load_dotenv
 
-PRICE_MIN = 5.0
-PRICE_MAX = 30.0
-MIN_AVG_VOLUME = 500_000          # פילטר בסיסי לפני dollar volume
-MIN_DOLLAR_VOLUME = 10_000_000    # מחזור x מחיר - הפילטר האמיתי לנזילות
+# Load environment variables from .env if present
+load_dotenv()
 
-# --- פילטרי Market Cap / Float (מסננים lottery-tickets מסוכנים מדי) ---
-MARKET_CAP_MIN = 50_000_000
-MARKET_CAP_MAX = 2_000_000_000
-FLOAT_MIN = 10_000_000
-FLOAT_MAX = 150_000_000
+# Base directories
+BASE_DIR = Path(__file__).resolve().parent
+LOGS_DIR = BASE_DIR / "logs"
+LOGS_DIR.mkdir(exist_ok=True)
 
-# --- Gap Filter (פער בין פתיחה לסגירה קודמת) ---
-GAP_MIN_PCT = 0.05
-GAP_MAX_PCT = 0.25
-GAP_REQUIRE_POSITIVE = True   # True = רק gap חיובי (מומלץ למומנטום לונג)
+# File Paths
+UNIVERSE_FILE = BASE_DIR / "universe.csv"
+FILLS_LOG = LOGS_DIR / "fills.csv"
+RUNS_LOG = LOGS_DIR / "runs.csv"
 
-# --- סוכן טכני (Screener Agent) ---
-EMA_FAST = 9
-EMA_SLOW = 21
-EMA_TREND = 20                 # לבדיקת "מחיר מעל EMA20" כתחליף ל-VWAP יומי
-RSI_PERIOD = 14
-RSI_MIN = 55
-RSI_MAX = 70
-RVOL_THRESHOLD = 3.0           # נפח יחסי מינימלי (הועלה מ-2 ל-3 לפי ההמלצה)
-ATR_PERIOD = 14
-ATR_MIN_PCT = 0.02             # תנודתיות מינימלית (2% מהמחיר) - מסנן "רעש שקט"
-ATR_MAX_PCT = 0.15             # תנודתיות מקסימלית - מסנן כאוס קיצוני
+# API Keys & Secrets
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-# --- Relative Strength (עוצמה מול השוק) ---
-RS_BENCHMARK = "SPY"           # אפשר גם QQQ
-RS_MIN_OUTPERFORMANCE = 0.02   # המניה חייבת "לנצח" את המדד ב-2% לפחות באותו יום
+# Workflow & Execution Settings
+DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
+FAIL_CLOSED_MCAP_FLOAT = os.getenv("FAIL_CLOSED_MCAP_FLOAT", "true").lower() == "true"
+STRICT_CATALYST_DAYS = int(os.getenv("STRICT_CATALYST_DAYS", "7"))
 
-# הערה חשובה: VWAP אמיתי הוא אינטרה-דיי. במערכת שרצה על נתוני סגירה יומיים
-# (yfinance daily), EMA20 משמש כתחליף סביר ל"מגמה חיובית", לא VWAP אמיתי.
-# לחישוב VWAP אמיתי צריך מקור נתונים אינטרה-דיי נפרד (למשל Polygon/Finnhub tick data).
+# Strategy / Screener Thresholds (P0 / Baseline)
+MIN_PRICE = float(os.getenv("MIN_PRICE", "2.0"))
+MAX_PRICE = float(os.getenv("MAX_PRICE", "20.0"))
+MIN_VOLUME = int(os.getenv("MIN_VOLUME", "100000"))
+MIN_REL_VOLUME = float(os.getenv("MIN_REL_VOLUME", "1.5"))
+MIN_CHANGE_PCT = float(os.getenv("MIN_CHANGE_PCT", "10.0"))
 
-# --- סוכן חדשות (Catalyst Agent) - דירוג A/B/C/D ---
-LLM_PROVIDER = "gemini"        # "gemini" או "groq"
-GEMINI_MODEL = "gemini-2.5-flash"
-GROQ_MODEL = "llama-3.3-70b-versatile"
-NEWS_LOOKBACK_HOURS = 24
-REQUIRE_NEWS = True             # אם True: מניה בלי חדשות כלל נפסלת אוטומטית
+# Market Cap & Float Limits
+MIN_MARKET_CAP = float(os.getenv("MIN_MARKET_CAP", "10000000"))      # $10M
+MAX_MARKET_CAP = float(os.getenv("MAX_MARKET_CAP", "1000000000"))    # $1B
+MAX_FLOAT = float(os.getenv("MAX_FLOAT", "50000000"))                # 50M shares
 
-# דירוג קטליזטורים - A/B הכי חזקים, C חלש, D=אין חדשות
-CATALYST_TIER_MIN_ACCEPTABLE = "B"   # רק A או B יאושרו סופית (ראה catalyst_agent)
+# Risk Management Parameters
+MAX_PORTFOLIO_RISK_PCT = float(os.getenv("MAX_PORTFOLIO_RISK_PCT", "2.0"))
+MAX_POSITIONS = int(os.getenv("MAX_POSITIONS", "3"))
+DEFAULT_ACCOUNT_SIZE = float(os.getenv("DEFAULT_ACCOUNT_SIZE", "10000.0"))
 
-CATALYST_KEYWORDS_TIER_A = [
-    "fda approval", "fda clearance", "earnings beat", "raises guidance",
-    "major contract", "acquisition", "merger", "buyout", "patent granted",
-]
-CATALYST_KEYWORDS_TIER_B = [
-    "partnership", "collaboration", "new product launch", "analyst upgrade",
-    "price target raised", "expands", "strategic",
-]
-CATALYST_KEYWORDS_TIER_C = [
-    "press release", "announces", "update", "conference", "webinar",
-]
-
-# --- סוכן סיכונים (Risk & Yield Manager) ---
-HOLDING_DAYS_MIN = 1
-HOLDING_DAYS_MAX = 3
-STOP_LOSS_PCT = 0.04             # -4% סטופ-לוס (ברירת מחדל, ה-qty נגזר מהסיכון בדולר)
-TAKE_PROFIT_MIN_PCT = 0.10       # יעד רווח מינימלי - טווח 10%-30% לפי ההמלצה
-TAKE_PROFIT_MAX_PCT = 0.30
-MIN_RISK_REWARD = 3.0            # יחס סיכון:סיכוי מינימלי לאישור עסקה
-
-TOTAL_BUDGET = 1000
-
-# --- Position Sizing מבוסס-סיכון (השדרוג המרכזי) ---
-# במקום "% מהתקציב", קובעים כמה דולרים מוכנים לאבד בעסקה בודדת,
-# וגודל הפוזיציה נגזר מזה: qty = RISK_PER_TRADE_DOLLARS / (entry - stop)
-RISK_PER_TRADE_PCT = 0.02        # 2% מהחשבון בסיכון לעסקה
-RISK_PER_TRADE_DOLLARS = TOTAL_BUDGET * RISK_PER_TRADE_PCT  # = $20 על חשבון של $1000
-MAX_POSITION_VALUE_PCT = 0.35    # תקרה נוספת: לא יותר מ-35% מהתקציב בפוזיציה אחת
-MAX_OPEN_POSITIONS = 3
-
-# עמלות ברוקר ישראלי - עדכן לפי הברוקר שלך
-COMMISSION_PER_TRADE = 3.0       # $ לעסקה (קנייה או מכירה בנפרד)
-CAPITAL_GAINS_TAX_RATE = 0.25    # מס רווחי הון בישראל
-
-# --- טלגרם ---
-LOG_FILE = "logs/decisions.csv"
+# Timezone / Market Schedule
+MARKET_TIMEZONE = "America/New_York"
+MARKET_OPEN_HOUR = 9
+MARKET_OPEN_MINUTE = 30
