@@ -1,84 +1,68 @@
 """
-Orchestrator - מריץ את 3 הסוכנים ברצף:
-Screener Agent -> Catalyst Agent -> Risk & Yield Manager -> Telegram + Log
+orchestrator.py - Main execution loop for Momentum MAS pipeline.
+Coordinates screening, filtering, catalyst analysis, risk sizing, and notifications.
 """
 
 import os
 import csv
 from datetime import datetime
-from dotenv import load_dotenv
-
-load_dotenv()
-
 import config
-from utils import load_universe
-from agents.screener_agent import run_screener
-from agents.catalyst_agent import run_catalyst_agent
-from agents.risk_manager import run_risk_manager
-from notifier import send_summary
+from utils import logger, expected_session_date
+from agents.screener_agent import ScreenerAgent
+from agents.catalyst_agent import CatalystAgent
+from agents.risk_manager import RiskManager
+from agents.trade_plan import TradePlanGenerator
+from notifier import Notifier
 
-
-def log_results(results: list):
-    os.makedirs(os.path.dirname(config.LOG_FILE), exist_ok=True)
-    file_exists = os.path.isfile(config.LOG_FILE)
-
-    with open(config.LOG_FILE, "a", newline="", encoding="utf-8") as f:
-        fieldnames = [
-            "timestamp", "ticker", "approved", "price", "rsi", "rvol", "atr_pct",
-            "dollar_volume_m", "market_cap_m", "float_m", "gap_pct",
-            "relative_strength_pct", "benchmark_change_pct",
-            "catalyst_tier", "catalyst_type", "confidence",
-            "entry_price", "stop_loss_price", "take_profit_price", "take_profit_pct_used",
-            "qty", "risk_dollars", "position_value",
-            "risk_reward_net", "net_profit_after_tax", "net_loss_if_stopped", "reason",
-        ]
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+def append_to_runs_log(session_date: str, total_screened: int, passed_filters: int, signals_generated: int, dry_run: bool):
+    """Logs run metrics into logs/runs.csv."""
+    file_exists = config.RUNS_LOG.exists()
+    with open(config.RUNS_LOG, mode="a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
         if not file_exists:
-            writer.writeheader()
-        for r in results:
-            row = {**r, "timestamp": datetime.now().isoformat()}
-            writer.writerow(row)
+            writer.writerow(["timestamp", "session_date", "total_screened", "passed_filters", "signals_generated", "dry_run"])
+        writer.writerow([
+            datetime.now().isoformat(),
+            session_date,
+            total_screened,
+            passed_filters,
+            signals_generated,
+            str(dry_run)
+        ])
 
+def run_pipeline():
+    session_date = expected_session_date()
+    logger.info(f"Starting pipeline run for session: {session_date} (Dry Run: {config.DRY_RUN})")
 
-def main():
-    print("=" * 70)
-    print(f"מערכת מולטי-סוכנים - סריקת מומנטום | {datetime.now().isoformat()}")
-    print("=" * 70)
+    screener = ScreenerAgent()
+    catalyst_agent = CatalystAgent()
+    risk_mgr = RiskManager()
+    trade_planner = TradePlanGenerator()
+    notifier = Notifier()
 
-    universe = load_universe()
+    raw_candidates = screener.run_screening()
+    total_screened = len(raw_candidates)
+    
+    filtered_candidates = screener.apply_p0_filters(raw_candidates)
+    passed_filters = len(filtered_candidates)
 
-    print(f"\n[סוכן 1/3] Screener Agent - סורק {len(universe)} מניות...")
-    candidates = run_screener(universe)
-    print(f"  --> {len(candidates)} מניות עברו סינון טכני\n")
+    approved_plans = []
+    for item in filtered_candidates:
+        catalyst = catalyst_agent.analyze(item["ticker"])
+        if catalyst.get("has_valid_catalyst", False):
+            plan = trade_planner.create_plan(item, catalyst)
+            sized_plan = risk_mgr.size_position(plan)
+            if sized_plan.get("shares", 0) > 0:
+                approved_plans.append(sized_plan)
 
-    if not candidates:
-        print("אין מועמדות היום. מסיים.")
-        send_summary([], len(universe), 0)
-        return
+    signals_generated = len(approved_plans)
+    logger.info(f"Screened: {total_screened} | Passed Filters: {passed_filters} | Signals: {signals_generated}")
 
-    print(f"[סוכן 2/3] Catalyst Agent - מדרג קטליזטורים חדשותיים (A/B/C/D)...")
-    enriched = run_catalyst_agent(candidates)
-    strong_catalyst = [c for c in enriched if c.get("catalyst_tier") in ("A", "B")]
-    print(f"  --> {len(strong_catalyst)} מתוך {len(enriched)} עם דירוג A/B\n")
+    if approved_plans and not config.DRY_RUN:
+        notifier.send_trade_plans(approved_plans)
 
-    # Risk Manager עצמו כבר דוחה דירוג מתחת לסף (config.CATALYST_TIER_MIN_ACCEPTABLE),
-    # אז מעבירים את כל המועמדים ותנו לו להחליט - שקיפות מלאה בלוג גם על הדחויים.
-    print(f"[סוכן 3/3] Risk & Yield Manager - בודק כדאיות כלכלית + position sizing מבוסס-סיכון...")
-    final_results = run_risk_manager(enriched)
-    approved = [r for r in final_results if r["approved"]]
-    print(f"  --> {len(approved)} עסקאות אושרו סופית\n")
-
-    log_results(final_results)
-
-    print("שולח התראות טלגרם...")
-    send_summary(approved, len(universe), len(candidates))
-
-    print("\n" + "=" * 70)
-    print(f"סיכום: {len(universe)} נסרקו -> {len(candidates)} טכני "
-          f"-> {len(strong_catalyst)} קטליזטור A/B -> {len(approved)} אושרו")
-    print(f"נרשם ל-{config.LOG_FILE}")
-    print("=" * 70)
-
+    append_to_runs_log(session_date, total_screened, passed_filters, signals_generated, config.DRY_RUN)
+    logger.info("Pipeline run completed successfully.")
 
 if __name__ == "__main__":
-    main()
+    run_pipeline()
