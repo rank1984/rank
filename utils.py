@@ -1,6 +1,23 @@
 import pandas as pd
 import os
 import config
+from datetime import datetime, timedelta
+
+def expected_session_date(dt: datetime = None) -> datetime.date:
+    """
+    מחזיר את תאריך יום המסחר הצפוי.
+    אם היום יום שבת או ראשון, מחזיר את יום שישי האחרון.
+    """
+    if dt is None:
+        dt = datetime.now()
+    
+    # 5 = שבת, 6 = ראשון (בספירה של Python שמתחילה מ-0 ביום שני)
+    if dt.weekday() == 5:
+        return (dt - timedelta(days=1)).date()
+    elif dt.weekday() == 6:
+        return (dt - timedelta(days=2)).date()
+    
+    return dt.date()
 
 def load_universe() -> list:
     """טוען יקום מניות מ-CSV אם קיים, אחרת משתמש ב-config.UNIVERSE"""
